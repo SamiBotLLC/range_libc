@@ -61,8 +61,8 @@ def locate_cuda():
     """
     # print os.environ
     # first check if the CUDAHOME env variable is in use
-    if os.path.isdir("/usr/local/cuda-11.4"):
-        home = "/usr/local/cuda-11.4"
+    if os.path.isdir("/usr/local/cuda-12.6"):
+        home = "/usr/local/cuda-12.6"
         nvcc = pjoin(home, 'bin', 'nvcc')
     elif os.path.isdir("/usr/local/cuda"):
         home = "/usr/local/cuda"
@@ -81,6 +81,7 @@ def locate_cuda():
     cudaconfig = {'home':home, 'nvcc':nvcc,
                   'include': pjoin(home, 'include'),
                   'lib64': pjoin(home, 'lib64')}
+    
     for k, v in cudaconfig.items():
         if not os.path.exists(v):
             raise EnvironmentError('The CUDA %s path could not be located in %s' % (k, v))
@@ -90,10 +91,8 @@ def locate_cuda():
 
 ##################### Configuration ############################
 
-
-# compiler_flags = ["-w","-std=c++11", "-march=native", "-ffast-math", "-fno-math-errno"]
 compiler_flags = ["-w","-std=c++11", "-march=native", "-ffast-math", "-fno-math-errno", "-O3"]
-nvcc_flags = ['-arch=sm_80', '--ptxas-options=-v', '-c', '--compiler-options', "'-fPIC'", "-w","-std=c++11"]
+nvcc_flags = ['-arch=sm_87', '--ptxas-options=-v', '-c', '--compiler-options', "'-fPIC'", "-w","-std=c++11"]
 include_dirs = ["../", numpy_include]
 depends = ["../includes/*.h"]
 sources = ["RangeLibc.pyx","../vendor/lodepng/lodepng.cpp"]
@@ -115,6 +114,8 @@ if trace:
 
 
 ##################################################################
+from multiprocessing import Lock
+compile_lock = Lock()
 
 def customize_compiler_for_nvcc(self):
     """inject deep into distutils to customize how the dispatch
@@ -147,9 +148,11 @@ def customize_compiler_for_nvcc(self):
             postargs = extra_postargs['gcc']
         # postargs = extra_postargs#['gcc']
 
-        super(obj, src, ext, cc_args, postargs, pp_opts)
-        # reset the default compiler_so, which we might have changed for cuda
-        self.compiler_so = default_compiler_so
+        with compile_lock:
+            super(obj, src, ext, cc_args, postargs, pp_opts)
+            # reset the default compiler_so, which we might have changed for cuda
+            self.compiler_so = default_compiler_so
+            # self.set_executable('compiler_so', default_compiler_so)
 
     # inject our redefined _compile method into the class
     self._compile = _compile
@@ -170,10 +173,11 @@ if use_cuda:
 					runtime_library_dirs=[CUDA['lib64']],
 					depends=depends,
 					language="c++",)
+	
 	setup(name='range_libc',
 		author='Corey Walsh',
 		version='0.1',
-		ext_modules = [ext],
+		ext_modules = [ext], #cythonize(ext),#[ext],
 		# inject our custom trigger
 		cmdclass={'build_ext': custom_build_ext})
 else:
